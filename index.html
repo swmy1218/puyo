@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ぷよぷよ</title>
+    <style>
+        #gameContainer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        }
+        #gameBoard {
+            display: grid;
+            grid-template-columns: repeat(6, 40px); /* 6列 */
+            grid-template-rows: repeat(12, 40px); /* 12行 */
+            gap: 2px;
+            justify-content: center;
+            margin: 20px auto;
+            width: max-content;
+            background-color: #222;
+            border: 4px solid #000;
+            padding: 5px;
+        }
+        .cell {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 50%;
+        }
+        .empty {
+            background-color: #444;
+        }
+        .red {
+            background-color: red;
+        }
+        .green {
+            background-color: green;
+        }
+        .blue {
+            background-color: blue;
+        }
+        .yellow {
+            background-color: yellow;
+        }
+        #scoreBoard {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="scoreBoard">スコア: 0</div>
+        <div id="gameBoard"></div>
+    </div>
+    <script>
+        const WIDTH = 6; // 横の列数
+        const HEIGHT = 12; // 縦の行数
+        const COLORS = ["red", "green", "blue", "yellow"]; // ぷよの種類
+        const EMPTY = null; // 空白のセル
+        let score = 0; // スコア
+        let chainCount = 0; // 連鎖数
+
+        let board = Array(HEIGHT).fill(null).map(() => Array(WIDTH).fill(EMPTY));
+        let currentPuyos = [
+            { x: 2, y: 0, color: COLORS[Math.floor(Math.random() * COLORS.length)] },
+            { x: 2, y: 1, color: COLORS[Math.floor(Math.random() * COLORS.length)] }
+        ]; // 操作中のぷよ（2つ）
+        let isGameOver = false;
+
+        // ボードを描画
+        function renderBoard() {
+            const gameBoard = document.getElementById("gameBoard");
+            const scoreBoard = document.getElementById("scoreBoard");
+            gameBoard.innerHTML = ""; // ボードをリセット
+            scoreBoard.textContent = `スコア: ${score}`;
+
+            for (let y = 0; y < HEIGHT; y++) {
+                for (let x = 0; x < WIDTH; x++) {
+                    const cell = document.createElement("div");
+                    cell.classList.add("cell");
+
+                    // 操作中のぷよを描画
+                    const movingPuyo = currentPuyos.find(p => p.x === x && p.y === y);
+                    if (movingPuyo) {
+                        cell.classList.add(movingPuyo.color);
+                    } else if (board[y][x]) {
+                        cell.classList.add(board[y][x]);
+                    } else {
+                        cell.classList.add("empty");
+                    }
+
+                    gameBoard.appendChild(cell);
+                }
+            }
+        }
+
+        // ぷよを固定し分離処理
+        function placePuyos() {
+            currentPuyos.forEach(p => {
+                if (board[p.y][p.x] === EMPTY) {
+                    board[p.y][p.x] = p.color;
+                }
+            });
+
+            // 浮いているぷよを下に落とす
+            dropFloatingPuyos();
+            chainMatches();
+        }
+
+        // 浮いているぷよを下に落とす
+        function dropFloatingPuyos() {
+            currentPuyos.forEach(p => {
+                while (p.y + 1 < HEIGHT && board[p.y + 1][p.x] === EMPTY) {
+                    board[p.y][p.x] = EMPTY; // 元の位置を空白に
+                    p.y++;
+                }
+                board[p.y][p.x] = p.color; // 落ちた先に配置
+            });
+        }
+
+        // チェーンマッチング（連鎖処理）
+        function chainMatches() {
+            let matched = false;
+            chainCount = 0; // 連鎖数リセット
+
+            do {
+                matched = checkMatches();
+                if (matched) {
+                    dropPuyos(); // 消えたぷよがあれば落下処理
+                    chainCount++;
+                }
+            } while (matched);
+
+            // 連鎖ボーナスをスコアに加算
+            if (chainCount > 1) {
+                const chainBonus = 50 * Math.pow(chainCount, 2);
+                score += chainBonus;
+            }
+
+            // 新しいぷよを生成
+            spawnNewPuyos();
+        }
+
+        // マッチングチェック (4つ以上並んだ場合)
+        function checkMatches() {
+            let visited = Array(HEIGHT).fill(null).map(() => Array(WIDTH).fill(false));
+            let matched = false;
+
+            function dfs(x, y, color) {
+                if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT || visited[y][x] || board[y][x] !== color) {
+                    return [];
+                }
+                visited[y][x] = true;
+                let match = [[x, y]];
+                match = match.concat(dfs(x + 1, y, color));
+                match = match.concat(dfs(x - 1, y, color));
+                match = match.concat(dfs(x, y + 1, color));
+                match = match.concat(dfs(x, y - 1, color));
+                return match;
+            }
+
+            for (let y = 0; y < HEIGHT; y++) {
+                for (let x = 0; x < WIDTH; x++) {
+                    if (board[y][x] !== EMPTY && !visited[y][x]) {
+                        let matches = dfs(x, y, board[y][x]);
+                        if (matches.length >= 4) {
+                            matches.forEach(([mx, my]) => {
+                                board[my][mx] = EMPTY;
+                            });
+
+                            // 基本スコア + 同時消しボーナスを加算
+                            const baseScore = 10 * matches.length;
+                            const simultaneousBonus = matches.length > 4 ? (matches.length - 4) * 20 : 0;
+                            score += baseScore + simultaneousBonus;
+                            matched = true;
+                        }
+                    }
+                }
+            }
+
+            return matched;
+        }
+
+        // 上のぷよを下に落とす
+        function dropPuyos() {
+            for (let x = 0; x < WIDTH; x++) {
+                for (let y = HEIGHT - 1; y >= 0; y--) {
+                    if (board[y][x] === EMPTY) {
+                        for (let k = y - 1; k >= 0; k--) {
+                            if (board[k][x] !== EMPTY) {
+                                board[y][x] = board[k][x];
+                                board[k][x] = EMPTY;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 新しいぷよを生成
+        function spawnNewPuyos() {
+            currentPuyos = [
+                { x: 2, y: 0, color: COLORS[Math.floor(Math.random() * COLORS.length)] },
+                { x: 2, y: 1, color: COLORS[Math.floor(Math.random() * COLORS.length)] }
+            ];
+            if (board[currentPuyos[0].y][currentPuyos[0].x] !== EMPTY || board[currentPuyos[1].y][currentPuyos[1].x] !== EMPTY) {
+                isGameOver = true;
+                alert(`ゲームオーバー！最終スコア: ${score}`);
+            }
+        }
+
+        // ぷよを移動
+        function movePuyos(dx, dy) {
+            const newPuyos = currentPuyos.map(p => ({ x: p.x + dx, y: p.y + dy, color: p.color }));
+
+            if (newPuyos.every(p => p.x >= 0 && p.x < WIDTH && p.y < HEIGHT && board[p.y]?.[p.x] === EMPTY)) {
+                currentPuyos = newPuyos;
+            } else if (dy > 0) {
+                placePuyos();
+            }
+        }
+
+        // ぷよの回転
+        function rotatePuyos() {
+            const [pivot, rotating] = currentPuyos;
+            const dx = rotating.x - pivot.x;
+            const dy = rotating.y - pivot.y;
+
+            const newX = pivot.x - dy;
+            const newY = pivot.y + dx;
+
+            if (
+                newX >= 0 &&
+                newX < WIDTH &&
+                newY >= 0 &&
+                newY < HEIGHT &&
+                board[newY]?.[newX] === EMPTY
+            ) {
+                currentPuyos[1] = { x: newX, y: newY, color: rotating.color };
+            }
+        }
+
+        // キーボード入力ハンドラー
+        document.addEventListener("keydown", (event) => {
+            if (isGameOver) return;
+            switch (event.key) {
+                case "ArrowLeft":
+                    movePuyos(-1, 0); // 左移動
+                    break;
+                case "ArrowRight":
+                    movePuyos(1, 0); // 右移動
+                    break;
+                case "ArrowDown":
+                    movePuyos(0, 1); // 下移動
+                    break;
+                case " ":
+                    rotatePuyos(); // スペースキーで回転
+                    break;
+            }
+            renderBoard();
+        });
+
+        // 自動落下処理
+        function autoDrop() {
+            if (!isGameOver) {
+                movePuyos(0, 1);
+                renderBoard();
+                setTimeout(autoDrop, 500);
+            }
+        }
+
+        // 初期描画と自動落下開始
+        renderBoard();
+        autoDrop();
+    </script>
+</body>
+</html>
